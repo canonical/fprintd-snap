@@ -1,0 +1,123 @@
+name: fprintd
+base: core26
+adopt-info: fprintd
+summary: Fingerprint authentication daemon (net.reactivated.Fprint) as a provider snap
+description: |
+  The fprintd system daemon (net.reactivated.Fprint) packaged as a
+  provider snap for Ubuntu Core Desktop, restoring the fat base's
+  fingerprint functionality. Staged from the same resolute fprintd
+  (1.94.5) and libfprint (1.95.1+tod1) builds the fat base shipped.
+
+  The daemon is strictly confined: its slot policy lives in the snapd
+  fork's `fprintd` interface (peer-less dbus receive rules, the
+  /var/lib/fprint state directory, reader device nodes); the plain
+  `dbus` slot provides activation and name ownership; clients connect
+  through the `fprintd` interface's plug.
+
+  base is plain core26: the daemon execs no host helpers (unlike
+  accounts-daemon's adduser/chpasswd chain), so everything it needs is
+  staged in the snap.
+
+grade: stable
+confinement: strict
+
+slots:
+  # Activation + name ownership: snapd writes the
+  # /var/lib/snapd/dbus-1/system-services entry and the /etc/dbus-1/system.d
+  # conf (root may own net.reactivated.Fprint) for this slot; the app
+  # activates on it.
+  fprintd-dbus:
+    interface: dbus
+    bus: system
+    name: net.reactivated.Fprint
+  # Interface-specific policy slot (state dir, devices, dbus receive),
+  # defined in the snapd fork.
+  fprintd:
+    interface: fprintd
+
+plugs:
+  # polkit authorization for the daemon's privileged operations (claim,
+  # enroll, verify, delete). The action XML is deliberately NOT shipped
+  # here: net.reactivated.fprint.device.policy is already baked into the
+  # desktop variant, and a second copy delivered through meta/polkit
+  # would double-seed the same action ids into the writable overlay.
+  polkit:
+    action-prefix: net.reactivated.fprint
+  # Client plug used by the fprintd command-line tools shipped by this
+  # same snap (confined-client canary; same-snap plug/slot connections
+  # are automatic).
+  fprintd-client:
+    interface: fprintd
+
+apps:
+  fprintd:
+    command: usr/libexec/fprintd
+    daemon: dbus
+    daemon-scope: system
+    activates-on:
+      - fprintd-dbus
+    plugs:
+      - polkit
+    slots:
+      - fprintd
+
+  fprintd-list:
+    command: usr/bin/fprintd-list
+    plugs:
+      - fprintd-client
+
+  fprintd-enroll:
+    command: usr/bin/fprintd-enroll
+    plugs:
+      - fprintd-client
+
+  fprintd-verify:
+    command: usr/bin/fprintd-verify
+    plugs:
+      - fprintd-client
+
+  fprintd-delete:
+    command: usr/bin/fprintd-delete
+    plugs:
+      - fprintd-client
+
+layout:
+  # The daemon keeps enrolled fingerprints at its compiled-in
+  # /var/lib/fprint path. That path cannot be served from the host:
+  # snap-confine builds snap mount namespaces from the base rootfs plus
+  # a fixed whitelist of host mounts, and /var/lib/fprint is neither in
+  # the base nor on the whitelist. Bind the snap's own writable
+  # $SNAP_COMMON there instead; the fstab-seeded host /var/lib/fprint on
+  # the desktop variant stays as inert factory seeding.
+  /var/lib/fprint:
+    bind: $SNAP_COMMON
+  # The daemon loads /etc/fprintd.conf ([storage] type=file); core26 has
+  # no such file, so bind the staged one over the (created by
+  # snap-update-ns) mountpoint.
+  /etc/fprintd.conf:
+    bind: $SNAP/etc/fprintd.conf
+
+parts:
+  fprintd:
+    plugin: nil
+    stage-packages:
+      - fprintd
+      - libfprint-2-2
+      - libfprint-2-tod1
+    override-build: |
+      craftctl default
+      deb_dir="/root/parts/fprintd/stage_packages"
+      craftctl set version="$(dpkg-deb -f "$deb_dir"/fprintd_*.deb Version)"
+    stage:
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
+      # the deb's activation entry and systemd unit are superseded by
+      # snapd's own (they also stay inert inside the snap; drop them so
+      # nothing can mistake this snap for a host-side service provider)
+      - -usr/lib/systemd/system/fprintd.service
+      - -usr/share/dbus-1/system-services
+      # pam-configs + the PAM module stay on the HOST (the variant bakes
+      # pam_fprintd.so; the module is loaded into the host's PAM stacks,
+      # not into the daemon)
+      - -usr/share/pam-configs
