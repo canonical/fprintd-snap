@@ -91,11 +91,12 @@ layout:
   # the desktop variant stays as inert factory seeding.
   /var/lib/fprint:
     bind: $SNAP_COMMON
-  # The daemon loads /etc/fprintd.conf ([storage] type=file); core26 has
-  # no such file, so bind the staged one over the (created by
-  # snap-update-ns) mountpoint.
-  /etc/fprintd.conf:
-    bind: $SNAP/etc/fprintd.conf
+  # NOTE: the daemon also reads /etc/fprintd.conf ([storage] type=file,
+  # i.e. its own compiled-in default). That file cannot be layout-bound
+  # here: snapcraft's post-prime step only creates DIRECTORY mountpoints
+  # for layout targets and aborts on a file path. A missing config is
+  # not fatal — the daemon logs and uses its defaults (file storage at
+  # /var/lib/fprint).
 
 parts:
   fprintd:
