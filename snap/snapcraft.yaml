@@ -122,3 +122,17 @@ parts:
       # pam_fprintd.so; the module is loaded into the host's PAM stacks,
       # not into the daemon)
       - -usr/share/pam-configs
+
+  # The polkit plug REQUIRES action XML at meta/polkit/<plug>.*.policy
+  # (snapd aborts profile setup with "cannot find any policy files"
+  # otherwise). This is the same 3-action policy the desktop variant
+  # bakes, so polkitd sees it twice until the variant copy is removed
+  # (flagged in the migration log, not silently changed here).
+  policy:
+    plugin: nil
+    after:
+      - fprintd
+    override-build: |
+      install -Dm644 \
+        "${CRAFT_PROJECT_DIR}/polkit/net.reactivated.fprint.device.policy" \
+        "${CRAFT_PART_INSTALL}/meta/polkit/polkit.net.reactivated.fprint.device.policy"
